@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: echokit-postgres
+    environment:
+      POSTGRES_DB: echokit
+      POSTGRES_USER: echokit
+      POSTGRES_PASSWORD: echokit
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U echokit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - echokit-network
+
+  # EchoKit Proxy 服务
+  proxy:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    container_name: echokit-proxy
+    environment:
+      DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit
+      PROXY_PORT: 10086
+      HEALTH_CHECK_PORT: 10087
+      LOG_LEVEL: info
+      ECHOKIT_HOST: host.docker.internal
+      DB_POOL_SIZE: 10
+    ports:
+      - "10086:10086"  # WebSocket 端口
+      - "10087:10087"  # 健康检查端口
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - echokit-network
+    restart: unless-stopped
+
+  # Backend API 服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: echokit-backend
+    environment:
+      SERVER_ADDR: 0.0.0.0
+      SERVER_PORT: 3000
+      DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit
+      DOCKER_IMAGE: secondstate/echokit:latest-server-vad
+      CONFIG_DIR: /app/data/configs
+      RECORD_DIR: /app/data/records
+      HELLO_WAV_PATH: /app/data/hello.wav
+      PORT_RANGE_START: 8080
+      PORT_RANGE_END: 8180
+      # EXTERNAL_HOST: 192.168.1.100  # 外部访问地址（可选，用于替换 localhost）
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket
+      - backend_data:/app/data
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - echokit-network
+    restart: unless-stopped
+
+  # Frontend 服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: echokit-frontend
+    environment:
+      VITE_API_URL: http://localhost:3000
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - echokit-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_data:
+    driver: local
+
+networks:
+  echokit-network:
+    driver: bridge

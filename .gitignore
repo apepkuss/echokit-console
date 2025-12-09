@@ -1,0 +1,25 @@
+# 环境配置
+.env
+
+# 日志文件
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+# macOS
+.DS_Store
+
+# Node.js (frontend)
+node_modules/
+
+# Rust (backend, proxy)
+target/
+
+# 运行时数据
+backend/data/
