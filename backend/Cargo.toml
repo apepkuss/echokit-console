@@ -1,5 +1,5 @@
 [package]
-name = "echokit-console"
+name = "echokit-backend"
 version.workspace = true
 edition.workspace = true
 
