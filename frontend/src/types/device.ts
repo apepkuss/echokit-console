@@ -10,6 +10,7 @@ export interface Device {
   createdAt: number;         // 创建时间（Unix 时间戳）
   lastConnectedAt?: number; // 最后连接时间
   status: DeviceStatus;       // 连接状态
+  firmwareVersion?: string;  // 固件版本
 }
 
 // 设备注册请求

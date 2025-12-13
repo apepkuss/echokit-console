@@ -1,0 +1,22 @@
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[tts]
+platform = "CosyVoice"
+token = "sk-94dc8f978a794975aefba43334731fe4"
+speaker = "longhua_v2"
+
+[asr]
+paraformer_token = "sk-94dc8f978a794975aefba43334731fe4"
+
+[llm]
+llm_chat_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+api_key = "sk-94dc8f978a794975aefba43334731fe4"
+model = "qwen-plus"
+history = 5
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a helpful AI assistant.
+"""

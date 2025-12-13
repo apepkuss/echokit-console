@@ -35,3 +35,15 @@ futures-util.workspace = true
 # 数据库
 sqlx.workspace = true
 dotenv.workspace = true
+
+# 认证
+jsonwebtoken = "9"
+argon2 = "0.5"
+validator = { version = "0.18", features = ["derive"] }
+
+# Redis（设备激活码存储）
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# 随机数生成
+rand = "0.8"
+hex = "0.4"

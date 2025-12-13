@@ -11,8 +11,8 @@ impl PgDeviceStore {
         Self { pool }
     }
 
-    /// 获取所有设备
-    pub async fn list(&self) -> Result<Vec<Device>> {
+    /// 获取用户的所有设备
+    pub async fn list(&self, user_id: &str) -> Result<Vec<Device>> {
         let rows = sqlx::query(
             r#"
             SELECT
@@ -22,11 +22,14 @@ impl PgDeviceStore {
                 bound_container_id,
                 created_at,
                 last_connected_at,
-                status
+                status,
+                firmware_version
             FROM devices
+            WHERE user_id = $1
             ORDER BY created_at DESC
             "#,
         )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch devices")?;
@@ -49,6 +52,7 @@ impl PgDeviceStore {
                     created_at: row.get("created_at"),
                     last_connected_at: row.get("last_connected_at"),
                     status,
+                    firmware_version: row.get("firmware_version"),
                 }
             })
             .collect();
@@ -56,8 +60,8 @@ impl PgDeviceStore {
         Ok(devices)
     }
 
-    /// 获取单个设备
-    pub async fn get(&self, device_id: &str) -> Result<Option<Device>> {
+    /// 获取用户的单个设备
+    pub async fn get(&self, device_id: &str, user_id: &str) -> Result<Option<Device>> {
         let row = sqlx::query(
             r#"
             SELECT
@@ -67,12 +71,14 @@ impl PgDeviceStore {
                 bound_container_id,
                 created_at,
                 last_connected_at,
-                status
+                status,
+                firmware_version
             FROM devices
-            WHERE device_id = $1
+            WHERE device_id = $1 AND user_id = $2
             "#,
         )
         .bind(device_id)
+        .bind(user_id)
         .fetch_optional(&self.pool)
         .await
         .context("Failed to fetch device")?;
@@ -93,21 +99,22 @@ impl PgDeviceStore {
                 created_at: row.get("created_at"),
                 last_connected_at: row.get("last_connected_at"),
                 status,
+                firmware_version: row.get("firmware_version"),
             }
         }))
     }
 
-    /// 注册新设备
-    pub async fn register(&self, device: Device) -> Result<Device> {
+    /// 注册新设备（关联到用户）
+    pub async fn register(&self, device: Device, user_id: &str) -> Result<Device> {
         let now = chrono::Utc::now().timestamp();
 
         sqlx::query(
             r#"
             INSERT INTO devices (
                 device_id, name, mac_address, bound_container_id,
-                created_at, last_connected_at, updated_at, status
+                created_at, last_connected_at, updated_at, status, user_id, firmware_version
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(&device.device_id)
@@ -118,6 +125,8 @@ impl PgDeviceStore {
         .bind(device.last_connected_at)
         .bind(now)
         .bind(device.status.to_string())
+        .bind(user_id)
+        .bind(&device.firmware_version)
         .execute(&self.pool)
         .await
         .context("Failed to register device")?;
@@ -125,23 +134,24 @@ impl PgDeviceStore {
         Ok(device)
     }
 
-    /// 更新设备
-    pub async fn update(&self, device_id: &str, updates: Device) -> Result<Device> {
+    /// 更新用户的设备
+    pub async fn update(&self, device_id: &str, user_id: &str, updates: Device) -> Result<Device> {
         let now = chrono::Utc::now().timestamp();
 
         sqlx::query(
             r#"
             UPDATE devices
             SET
-                name = $2,
-                bound_container_id = $3,
-                last_connected_at = $4,
-                status = $5,
-                updated_at = $6
-            WHERE device_id = $1
+                name = $3,
+                bound_container_id = $4,
+                last_connected_at = $5,
+                status = $6,
+                updated_at = $7
+            WHERE device_id = $1 AND user_id = $2
             "#,
         )
         .bind(device_id)
+        .bind(user_id)
         .bind(&updates.name)
         .bind(&updates.bound_container_id)
         .bind(updates.last_connected_at)
@@ -154,15 +164,16 @@ impl PgDeviceStore {
         Ok(updates)
     }
 
-    /// 删除设备
-    pub async fn delete(&self, device_id: &str) -> Result<()> {
+    /// 删除用户的设备
+    pub async fn delete(&self, device_id: &str, user_id: &str) -> Result<()> {
         sqlx::query(
             r#"
             DELETE FROM devices
-            WHERE device_id = $1
+            WHERE device_id = $1 AND user_id = $2
             "#,
         )
         .bind(device_id)
+        .bind(user_id)
         .execute(&self.pool)
         .await
         .context("Failed to delete device")?;
@@ -170,20 +181,21 @@ impl PgDeviceStore {
         Ok(())
     }
 
-    /// 绑定设备到服务器
-    pub async fn bind_to_server(&self, device_id: &str, container_id: &str) -> Result<()> {
+    /// 绑定用户的设备到服务器
+    pub async fn bind_to_server(&self, device_id: &str, user_id: &str, container_id: &str) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
 
         sqlx::query(
             r#"
             UPDATE devices
             SET
-                bound_container_id = $2,
-                updated_at = $3
-            WHERE device_id = $1
+                bound_container_id = $3,
+                updated_at = $4
+            WHERE device_id = $1 AND user_id = $2
             "#,
         )
         .bind(device_id)
+        .bind(user_id)
         .bind(container_id)
         .bind(now)
         .execute(&self.pool)
@@ -193,8 +205,8 @@ impl PgDeviceStore {
         Ok(())
     }
 
-    /// 解绑设备
-    pub async fn unbind(&self, device_id: &str) -> Result<()> {
+    /// 解绑用户的设备
+    pub async fn unbind(&self, device_id: &str, user_id: &str) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
 
         sqlx::query(
@@ -202,15 +214,139 @@ impl PgDeviceStore {
             UPDATE devices
             SET
                 bound_container_id = NULL,
-                updated_at = $2
-            WHERE device_id = $1
+                updated_at = $3
+            WHERE device_id = $1 AND user_id = $2
             "#,
         )
         .bind(device_id)
+        .bind(user_id)
         .bind(now)
         .execute(&self.pool)
         .await
         .context("Failed to unbind device")?;
+
+        Ok(())
+    }
+
+    /// 获取设备信息（不检查用户，仅用于检查设备是否存在）
+    pub async fn get_device(&self, device_id: &str) -> Result<Option<(Device, Option<String>)>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                device_id,
+                name,
+                mac_address,
+                bound_container_id,
+                created_at,
+                last_connected_at,
+                status,
+                user_id,
+                firmware_version
+            FROM devices
+            WHERE device_id = $1
+            "#,
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch device")?;
+
+        Ok(row.map(|row| {
+            let status_str: String = row.get("status");
+            let status = match status_str.as_str() {
+                "online" => DeviceStatus::Online,
+                "offline" => DeviceStatus::Offline,
+                _ => DeviceStatus::Unknown,
+            };
+            let user_id: Option<String> = row.get("user_id");
+            let mac_address: Option<String> = row.get("mac_address");
+            let device_id: String = row.get("device_id");
+
+            (Device {
+                device_id: device_id.clone(),
+                name: row.get("name"),
+                mac_address: mac_address.unwrap_or_else(|| device_id),
+                bound_container_id: row.get("bound_container_id"),
+                created_at: row.get("created_at"),
+                last_connected_at: row.get("last_connected_at"),
+                status,
+                firmware_version: row.get("firmware_version"),
+            }, user_id)
+        }))
+    }
+
+    /// 为用户创建设备（激活时使用）
+    ///
+    /// device_id 和 mac_address 统一使用 12 位小写十六进制格式（如 "98a316f0b1e5"）
+    pub async fn create_device_for_user(
+        &self,
+        device_id: &str,
+        device_name: &str,
+        user_id: &str,
+        firmware_version: Option<&str>,
+    ) -> Result<Device> {
+        let now = chrono::Utc::now().timestamp();
+        // device_id 和 mac_address 使用相同格式（12位小写十六进制）
+        let normalized_device_id = device_id.to_lowercase();
+
+        let device = Device {
+            device_id: normalized_device_id.clone(),
+            name: device_name.to_string(),
+            mac_address: normalized_device_id,
+            bound_container_id: None,
+            created_at: now,
+            last_connected_at: None,
+            status: DeviceStatus::Offline,
+            firmware_version: firmware_version.map(|v| v.to_string()),
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO devices (
+                device_id, name, mac_address, bound_container_id,
+                created_at, last_connected_at, updated_at, status, user_id, firmware_version
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "#,
+        )
+        .bind(&device.device_id)
+        .bind(&device.name)
+        .bind(&device.mac_address)
+        .bind(&device.bound_container_id)
+        .bind(device.created_at)
+        .bind(device.last_connected_at)
+        .bind(now)
+        .bind(device.status.to_string())
+        .bind(user_id)
+        .bind(&device.firmware_version)
+        .execute(&self.pool)
+        .await
+        .context("Failed to create device for user")?;
+
+        Ok(device)
+    }
+
+    /// 更新设备固件版本
+    pub async fn update_firmware_version(
+        &self,
+        device_id: &str,
+        firmware_version: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+
+        sqlx::query(
+            r#"
+            UPDATE devices
+            SET firmware_version = $2, updated_at = $3
+            WHERE device_id = $1
+            "#,
+        )
+        .bind(device_id)
+        .bind(firmware_version)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update firmware version")?;
 
         Ok(())
     }

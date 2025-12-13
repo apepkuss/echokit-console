@@ -34,3 +34,7 @@ dotenv.workspace = true
 
 # 时间
 chrono.workspace = true
+
+# HTTP 代理
+reqwest.workspace = true
+http = "1.1"

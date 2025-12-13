@@ -1,7 +1,7 @@
 use crate::models::{ContainerInfo, Device, DeviceStatus};
 use anyhow::{anyhow, Context, Result};
 use sqlx::{PgPool, Row};
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 #[derive(Clone)]
 pub struct DeviceStore {
@@ -13,7 +13,7 @@ impl DeviceStore {
         Self { pool }
     }
 
-    /// 根据设备 ID 获取设备信息
+    /// 根据设备 ID 获取设备信息（包含 user_id）
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>> {
         debug!("查询设备信息: device_id={}", device_id);
 
@@ -26,7 +26,8 @@ impl DeviceStore {
                 bound_container_id,
                 created_at,
                 last_connected_at,
-                status
+                status,
+                user_id
             FROM devices
             WHERE device_id = $1
             "#,
@@ -52,11 +53,12 @@ impl DeviceStore {
                 created_at: row.get("created_at"),
                 last_connected_at: row.get("last_connected_at"),
                 status,
+                user_id: row.get("user_id"),
             }
         }))
     }
 
-    /// 获取设备绑定的容器信息
+    /// 获取设备绑定的容器信息（包含用户验证）
     pub async fn get_container_for_device(
         &self,
         device_id: &str,
@@ -72,9 +74,13 @@ impl DeviceStore {
         // 2. 检查是否绑定容器
         let container_id = device
             .bound_container_id
+            .clone()
             .ok_or_else(|| anyhow!("设备未绑定容器: {}", device_id))?;
 
-        // 3. 根据容器 ID 判断是官方容器还是用户自建容器
+        // 3. 验证服务器归属（设备只能连接到同用户的服务器或全局共享服务器）
+        self.validate_container_access(&device, &container_id).await?;
+
+        // 4. 根据容器 ID 获取端点信息
         let (host, port, protocol) = self.resolve_container_endpoint(&container_id).await?;
 
         Ok(ContainerInfo {
@@ -85,6 +91,54 @@ impl DeviceStore {
             protocol,
             status: "running".to_string(),
         })
+    }
+
+    /// 验证设备是否有权限访问指定容器
+    ///
+    /// 规则：
+    /// - 容器 user_id 为 NULL：全局共享服务器，所有用户可访问
+    /// - 容器 user_id 与设备 user_id 相同：用户自己的服务器，可访问
+    /// - 其他情况：无权访问
+    async fn validate_container_access(&self, device: &Device, container_id: &str) -> Result<()> {
+        debug!("验证容器访问权限: device_id={}, container_id={}", device.device_id, container_id);
+
+        // 查询容器的 user_id
+        let row = sqlx::query(
+            r#"
+            SELECT user_id
+            FROM containers
+            WHERE id = $1
+            "#,
+        )
+        .bind(container_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("查询容器信息失败")?
+        .ok_or_else(|| anyhow!("容器不存在: {}", container_id))?;
+
+        let container_user_id: Option<String> = row.get("user_id");
+
+        // 验证访问权限
+        match container_user_id {
+            // 全局共享服务器（user_id = NULL），所有用户可访问
+            None => {
+                debug!("容器 {} 是全局共享服务器，允许访问", container_id);
+                Ok(())
+            }
+            // 用户自己的服务器
+            Some(ref cuid) if device.user_id.as_ref() == Some(cuid) => {
+                debug!("容器 {} 属于用户 {}，允许访问", container_id, cuid);
+                Ok(())
+            }
+            // 其他用户的服务器，拒绝访问
+            Some(cuid) => {
+                warn!(
+                    "设备 {} (user_id={:?}) 无权访问容器 {} (user_id={})",
+                    device.device_id, device.user_id, container_id, cuid
+                );
+                Err(anyhow!("设备无权访问此服务器"))
+            }
+        }
     }
 
     /// 解析容器端点信息

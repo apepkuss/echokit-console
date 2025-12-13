@@ -1,6 +1,7 @@
 mod config;
 mod forwarder;
 mod handler;
+mod http_proxy;
 mod models;
 mod store;
 
@@ -9,7 +10,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use axum::{
-    routing::get,
+    routing::{any, get},
     Router,
 };
 use sqlx::postgres::PgPoolOptions;
@@ -19,6 +20,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::ProxyConfig;
 use crate::handler::{handle_device_websocket, health_check, AppState};
+use crate::http_proxy::proxy_to_backend;
 use crate::store::DeviceStore;
 
 #[tokio::main]
@@ -44,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
     info!("  - 健康检查端口: {}", config.health_check_port);
     info!("  - 数据库: {}", config.database_url.split('@').last().unwrap_or(""));
     info!("  - EchoKit Server 主机: {}", config.echokit_host);
+    info!("  - Backend URL: {}", config.backend_url);
 
     // 初始化数据库连接池
     info!("连接到数据库...");
@@ -64,9 +67,12 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
     });
 
-    // 创建 WebSocket 服务器路由
+    // 创建主服务器路由（WebSocket + HTTP 代理）
     let ws_app = Router::new()
+        // WebSocket 路由
         .route("/ws/{device_id}", get(handle_device_websocket))
+        // HTTP API 代理（转发到 Backend）
+        .route("/api/{*path}", any(proxy_to_backend))
         .with_state(state.clone())
         .layer(
             CorsLayer::new()

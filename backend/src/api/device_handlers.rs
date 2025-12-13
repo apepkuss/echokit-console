@@ -2,23 +2,27 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::models::{
-    ApiError, BindServerRequest, Device, DeviceStatus, RegisterDeviceRequest,
+    ApiError, AuthContext, BindServerRequest, Device, DeviceStatus, RegisterDeviceRequest,
+    ReportDeviceInfoRequest, ReportDeviceInfoResponse,
 };
 use crate::store::PgDeviceStore;
 
 pub type DeviceStoreState = Arc<PgDeviceStore>;
 
 /// 获取设备列表
-pub async fn list_devices(State(store): State<DeviceStoreState>) -> impl IntoResponse {
-    info!("获取设备列表");
+pub async fn list_devices(
+    State(store): State<DeviceStoreState>,
+    Extension(auth): Extension<AuthContext>,
+) -> impl IntoResponse {
+    info!("获取用户 {} 的设备列表", auth.user_id);
 
-    match store.list().await {
+    match store.list(&auth.user_id).await {
         Ok(devices) => {
             info!("成功获取 {} 个设备", devices.len());
             (StatusCode::OK, Json(devices))
@@ -36,11 +40,12 @@ pub async fn list_devices(State(store): State<DeviceStoreState>) -> impl IntoRes
 /// 获取单个设备
 pub async fn get_device(
     State(store): State<DeviceStoreState>,
+    Extension(auth): Extension<AuthContext>,
     Path(device_id): Path<String>,
 ) -> impl IntoResponse {
     info!("获取设备: {}", device_id);
 
-    match store.get(&device_id).await {
+    match store.get(&device_id, &auth.user_id).await {
         Ok(Some(device)) => {
             info!("成功获取设备: {}", device.name);
             (StatusCode::OK, Json(Some(device))).into_response()
@@ -73,12 +78,13 @@ pub async fn get_device(
 /// 注册新设备
 pub async fn register_device(
     State(store): State<DeviceStoreState>,
+    Extension(auth): Extension<AuthContext>,
     Json(request): Json<RegisterDeviceRequest>,
 ) -> impl IntoResponse {
     info!("注册新设备: {} ({})", request.name, request.mac_address);
 
-    // 检查设备是否已存在
-    if let Ok(Some(_)) = store.get(&request.device_id).await {
+    // 检查设备是否已存在（在当前用户下）
+    if let Ok(Some(_)) = store.get(&request.device_id, &auth.user_id).await {
         info!("设备已注册: {}", request.device_id);
         return (
             StatusCode::CONFLICT,
@@ -99,9 +105,10 @@ pub async fn register_device(
         created_at: now,
         last_connected_at: Some(now),
         status: DeviceStatus::Unknown,
+        firmware_version: None,
     };
 
-    match store.register(device.clone()).await {
+    match store.register(device.clone(), &auth.user_id).await {
         Ok(_) => {
             info!("设备注册成功: {}", device.device_id);
             (StatusCode::CREATED, Json(device)).into_response()
@@ -123,12 +130,13 @@ pub async fn register_device(
 /// 删除设备
 pub async fn delete_device(
     State(store): State<DeviceStoreState>,
+    Extension(auth): Extension<AuthContext>,
     Path(device_id): Path<String>,
 ) -> impl IntoResponse {
     info!("删除设备: {}", device_id);
 
     // 检查设备是否存在
-    if let Ok(None) = store.get(&device_id).await {
+    if let Ok(None) = store.get(&device_id, &auth.user_id).await {
         info!("设备不存在: {}", device_id);
         return (
             StatusCode::NOT_FOUND,
@@ -140,7 +148,7 @@ pub async fn delete_device(
             .into_response();
     }
 
-    match store.delete(&device_id).await {
+    match store.delete(&device_id, &auth.user_id).await {
         Ok(_) => {
             info!("设备删除成功: {}", device_id);
             StatusCode::NO_CONTENT.into_response()
@@ -162,6 +170,7 @@ pub async fn delete_device(
 /// 绑定设备到服务器
 pub async fn bind_device_to_server(
     State(store): State<DeviceStoreState>,
+    Extension(auth): Extension<AuthContext>,
     Path(device_id): Path<String>,
     Json(request): Json<BindServerRequest>,
 ) -> impl IntoResponse {
@@ -169,7 +178,7 @@ pub async fn bind_device_to_server(
     let device_id_normalized = device_id.replace(":", "").to_lowercase();
 
     // 获取设备当前信息（包括之前绑定的服务器）
-    let device = match store.get(&device_id).await {
+    let device = match store.get(&device_id, &auth.user_id).await {
         Ok(Some(device)) => device,
         Ok(None) => {
             info!("[后端] 设备不存在: {}", device_id_normalized);
@@ -221,7 +230,7 @@ pub async fn bind_device_to_server(
     );
 
     match store
-        .bind_to_server(&device_id, &request.container_id)
+        .bind_to_server(&device_id, &auth.user_id, &request.container_id)
         .await
     {
         Ok(_) => {
@@ -251,13 +260,14 @@ pub async fn bind_device_to_server(
 /// 解绑设备
 pub async fn unbind_device(
     State(store): State<DeviceStoreState>,
+    Extension(auth): Extension<AuthContext>,
     Path(device_id): Path<String>,
 ) -> impl IntoResponse {
     // 将 device_id 转换为小写无冒号格式
     let device_id_normalized = device_id.replace(":", "").to_lowercase();
 
     // 获取设备当前信息（包括之前绑定的服务器）
-    let device = match store.get(&device_id).await {
+    let device = match store.get(&device_id, &auth.user_id).await {
         Ok(Some(device)) => device,
         Ok(None) => {
             info!("[后端] 设备不存在: {}", device_id_normalized);
@@ -300,7 +310,7 @@ pub async fn unbind_device(
         device_id_normalized, device.name, previous_server_url
     );
 
-    match store.unbind(&device_id).await {
+    match store.unbind(&device_id, &auth.user_id).await {
         Ok(_) => {
             info!(
                 "[后端] 解绑服务器成功: device_id={}, 已解除与 {} 的绑定",
@@ -318,6 +328,94 @@ pub async fn unbind_device(
                 Json(ApiError {
                     error: "InternalError".to_string(),
                     message: "Failed to unbind device".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// 设备上报固件版本（无需认证）
+///
+/// 设备在 OTA 升级后调用此接口上报新的固件版本
+/// 使用 device_id + mac_address 双重验证设备身份
+pub async fn report_device_info(
+    State(store): State<DeviceStoreState>,
+    Json(body): Json<ReportDeviceInfoRequest>,
+) -> impl IntoResponse {
+    let device_id = body.device_id.to_lowercase();
+    let mac_address = body.mac_address.to_lowercase();
+
+    info!(
+        "[DeviceReport] 设备上报: device_id={}, firmware={}",
+        device_id, body.firmware_version
+    );
+
+    // 验证设备是否存在且 mac_address 匹配
+    let device = match store.get_device(&device_id).await {
+        Ok(Some((device, _))) => device,
+        Ok(None) => {
+            info!("[DeviceReport] 设备不存在: {}", device_id);
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiError {
+                    error: "device_not_found".to_string(),
+                    message: "设备不存在".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            error!("[DeviceReport] 查询设备失败: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    error: "internal_error".to_string(),
+                    message: "查询设备失败".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // 验证 mac_address 匹配
+    if device.mac_address.to_lowercase() != mac_address {
+        info!(
+            "[DeviceReport] MAC 地址不匹配: device_id={}, expected={}, got={}",
+            device_id, device.mac_address, mac_address
+        );
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                error: "mac_address_mismatch".to_string(),
+                message: "MAC 地址不匹配".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // 更新固件版本
+    match store
+        .update_firmware_version(&device_id, &body.firmware_version)
+        .await
+    {
+        Ok(_) => {
+            info!(
+                "[DeviceReport] 固件版本更新成功: device_id={}, firmware={}",
+                device_id, body.firmware_version
+            );
+            (StatusCode::OK, Json(ReportDeviceInfoResponse { status: "ok".to_string() })).into_response()
+        }
+        Err(e) => {
+            error!(
+                "[DeviceReport] 更新固件版本失败: device_id={}, error={}",
+                device_id, e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    error: "internal_error".to_string(),
+                    message: "更新固件版本失败".to_string(),
                 }),
             )
                 .into_response()

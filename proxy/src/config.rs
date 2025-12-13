@@ -22,6 +22,12 @@ pub struct ProxyConfig {
 
     /// EchoKit Server 主机地址
     pub echokit_host: String,
+
+    /// Backend API URL（用于 HTTP 代理）
+    pub backend_url: String,
+
+    /// HTTP 代理超时时间（毫秒）
+    pub http_proxy_timeout_ms: u64,
 }
 
 impl ProxyConfig {
@@ -56,6 +62,14 @@ impl ProxyConfig {
 
             echokit_host: env::var("ECHOKIT_HOST")
                 .unwrap_or_else(|_| "localhost".to_string()),
+
+            backend_url: env::var("BACKEND_URL")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+
+            http_proxy_timeout_ms: env::var("HTTP_PROXY_TIMEOUT_MS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30000), // 默认 30 秒
         }
     }
 }

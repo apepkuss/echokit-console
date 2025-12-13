@@ -104,10 +104,10 @@ else
 fi
 
 # ============================================================
-# 可选：停止 PostgreSQL 容器
+# 可选：停止数据服务容器
 # ============================================================
 echo ""
-read -p "是否停止 PostgreSQL 容器？(y/N): " -n 1 -r
+read -p "是否停止 PostgreSQL 和 Redis 容器？(y/N): " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     log_info "停止 PostgreSQL 容器..."
@@ -117,8 +117,16 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     else
         log_warn "PostgreSQL 容器未运行"
     fi
+
+    log_info "停止 Redis 容器..."
+    if docker ps --format '{{.Names}}' | grep -q "^echokit-redis$"; then
+        docker stop echokit-redis
+        log_success "Redis 容器已停止"
+    else
+        log_warn "Redis 容器未运行"
+    fi
 else
-    log_info "保持 PostgreSQL 容器运行"
+    log_info "保持 PostgreSQL 和 Redis 容器运行"
 fi
 
 echo ""

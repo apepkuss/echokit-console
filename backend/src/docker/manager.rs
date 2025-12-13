@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use bollard::models::{ContainerSummaryStateEnum, HostConfig, PortBinding};
 use bollard::query_parameters::{
-    CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogsOptions,
-    RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+    CreateContainerOptions, CreateImageOptions, InspectContainerOptions, ListContainersOptions,
+    LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::secret::ContainerCreateBody;
 use bollard::Docker;
+use futures_util::TryStreamExt;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::Path;
@@ -287,11 +288,65 @@ impl DockerManager {
         }
     }
 
+    /// 检查镜像是否存在
+    async fn image_exists(&self, image: &str) -> bool {
+        self.docker.inspect_image(image).await.is_ok()
+    }
+
+    /// 拉取 Docker 镜像
+    ///
+    /// 返回 Ok(true) 表示拉取成功，Ok(false) 表示镜像已存在无需拉取
+    pub async fn pull_image(&self, image: &str) -> Result<bool> {
+        // 检查镜像是否已存在
+        if self.image_exists(image).await {
+            info!("镜像已存在，无需拉取: {}", image);
+            return Ok(false);
+        }
+
+        info!("开始拉取镜像: {}", image);
+
+        // 解析镜像名称和标签
+        let (image_name, tag) = if let Some(pos) = image.rfind(':') {
+            (&image[..pos], &image[pos + 1..])
+        } else {
+            (image, "latest")
+        };
+
+        let options = CreateImageOptions {
+            from_image: Some(image_name.to_string()),
+            tag: Some(tag.to_string()),
+            ..Default::default()
+        };
+
+        // 拉取镜像（流式处理进度）
+        let mut stream = self.docker.create_image(Some(options), None, None);
+
+        while let Some(result) = stream.try_next().await? {
+            // 记录拉取进度
+            if let Some(status) = result.status {
+                if let Some(progress) = result.progress {
+                    debug!("[Pull] {}: {}", status, progress);
+                } else {
+                    debug!("[Pull] {}", status);
+                }
+            }
+        }
+
+        // 验证镜像是否拉取成功
+        if self.image_exists(image).await {
+            info!("镜像拉取成功: {}", image);
+            Ok(true)
+        } else {
+            anyhow::bail!("镜像拉取后仍不存在: {}", image)
+        }
+    }
+
     /// 部署新的 EchoKit 容器
     pub async fn deploy(
         &self,
         echokit_config: EchoKitConfig,
         port: Option<u16>,
+        user_id: Option<&str>,
     ) -> Result<DeployResponse> {
         let container_name = echokit_config.name.clone();
         let port = match port {
@@ -300,12 +355,12 @@ impl DockerManager {
         };
 
         info!(
-            "[1/5] 准备部署: 容器名='{}', 端口={}, 镜像='{}'",
+            "[1/6] 准备部署: 容器名='{}', 端口={}, 镜像='{}'",
             container_name, port, self.config.docker_image
         );
 
         // 生成配置文件
-        info!("[2/5] 生成配置文件...");
+        info!("[2/6] 生成配置文件...");
         let config_content = generate_config_toml(&echokit_config);
         let config_dir = Path::new(&self.config.config_dir).join(&container_name);
 
@@ -340,7 +395,25 @@ impl DockerManager {
             .await
             .context(format!("Failed to create record directory: {:?}", record_dir))?;
 
-        info!("[2/5] 配置文件生成完成: {:?}", config_path);
+        info!("[2/6] 配置文件生成完成: {:?}", config_path);
+
+        // 检查并拉取镜像
+        info!("[3/6] 检查 Docker 镜像...");
+        if !self.image_exists(&self.config.docker_image).await {
+            info!(
+                "[3/6] 镜像不存在，开始拉取: {}",
+                self.config.docker_image
+            );
+            self.pull_image(&self.config.docker_image)
+                .await
+                .context(format!(
+                    "Failed to pull image '{}'. Please check your network connection and ensure the image exists on Docker Hub.",
+                    self.config.docker_image
+                ))?;
+            info!("[3/6] 镜像拉取完成");
+        } else {
+            info!("[3/6] 镜像已存在: {}", self.config.docker_image);
+        }
 
         // 配置端口映射
         let mut port_bindings = HashMap::new();
@@ -405,7 +478,7 @@ impl DockerManager {
         };
 
         info!(
-            "[3/5] 创建 Docker 容器: 镜像='{}', 端口映射={}:8080",
+            "[4/6] 创建 Docker 容器: 镜像='{}', 端口映射={}:8080",
             self.config.docker_image, port
         );
 
@@ -414,17 +487,17 @@ impl DockerManager {
             .create_container(Some(options), container_config)
             .await
             .context(format!(
-                "Failed to create container '{}'. Please check: 1) Docker daemon is running, 2) Image '{}' exists locally or can be pulled",
-                container_name, self.config.docker_image
+                "Failed to create container '{}'. Docker daemon may not be running or there was an unexpected error.",
+                container_name
             ))?;
 
         info!(
-            "[3/5] 容器创建成功: id={}",
+            "[4/6] 容器创建成功: id={}",
             &response.id[..12.min(response.id.len())]
         );
 
         // 启动容器
-        info!("[4/5] 启动容器...");
+        info!("[5/6] 启动容器...");
         self.docker
             .start_container(&response.id, None::<StartContainerOptions>)
             .await
@@ -433,17 +506,17 @@ impl DockerManager {
                 container_name
             ))?;
 
-        info!("[4/5] 容器启动成功");
+        info!("[5/6] 容器启动成功");
 
         // 等待容器就绪并进行健康检查
-        info!("[5/5] 等待服务就绪，执行健康检查...");
+        info!("[6/6] 等待服务就绪，执行健康检查...");
         let health = self.wait_for_container_ready(&response.id, port, 30).await;
 
         if health.status == HealthStatus::Healthy {
-            info!("[5/5] 健康检查通过，服务已就绪");
+            info!("[6/6] 健康检查通过，服务已就绪");
         } else {
             warn!(
-                "[5/5] 健康检查未通过: {:?}",
+                "[6/6] 健康检查未通过: {:?}",
                 health.error_message.as_deref().unwrap_or("未知原因")
             );
         }
@@ -467,8 +540,8 @@ impl DockerManager {
 
         sqlx::query!(
             r#"
-            INSERT INTO containers (id, name, host, port, use_tls, is_default, is_external, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO containers (id, name, host, port, use_tls, is_default, is_external, created_at, user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 host = EXCLUDED.host,
@@ -483,13 +556,14 @@ impl DockerManager {
             false, // use_tls
             false, // is_default
             false, // is_external
-            now
+            now,
+            user_id
         )
         .execute(&self.pool)
         .await
         .context("Failed to insert container info to database")?;
 
-        info!("容器信息已写入数据库: id={}, name={}, port={}", response.id, container_name, port);
+        info!("容器信息已写入数据库: id={}, name={}, port={}, user_id={:?}", response.id, container_name, port, user_id);
 
         Ok(DeployResponse {
             container_id: response.id,
@@ -501,7 +575,31 @@ impl DockerManager {
         })
     }
 
-    /// 获取所有 EchoKit 容器
+    /// 获取用户可见的 EchoKit 容器（用户自己的 + 全局共享的）
+    pub async fn list_containers_for_user(&self, user_id: &str) -> Result<Vec<ContainerInfo>> {
+        // 从数据库获取用户可见的容器 ID 列表（用户自己的 + 全局共享的）
+        let visible_container_ids: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT id FROM containers
+            WHERE user_id = $1 OR user_id IS NULL
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to query visible containers")?;
+
+        // 获取所有容器，然后过滤
+        let all_containers = self.list_containers().await?;
+        let filtered: Vec<ContainerInfo> = all_containers
+            .into_iter()
+            .filter(|c| visible_container_ids.contains(&c.id))
+            .collect();
+
+        Ok(filtered)
+    }
+
+    /// 获取所有 EchoKit 容器（内部使用，不做用户过滤）
     pub async fn list_containers(&self) -> Result<Vec<ContainerInfo>> {
         let mut filters = HashMap::new();
         filters.insert("label".to_string(), vec!["managed-by=echokit-console".to_string()]);
@@ -562,6 +660,37 @@ impl DockerManager {
         Ok(result)
     }
 
+    /// 验证用户是否有权限操作指定容器
+    ///
+    /// 规则：
+    /// - 容器 user_id 为 NULL：全局共享容器，只读（不能删除/停止/启动）
+    /// - 容器 user_id 与当前用户相同：用户自己的容器，可操作
+    /// - 其他情况：无权限
+    pub async fn check_container_permission(&self, container_id: &str, user_id: &str, allow_shared: bool) -> Result<bool> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            r#"SELECT user_id FROM containers WHERE id = $1"#,
+        )
+        .bind(container_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to query container")?;
+
+        match row {
+            None => Ok(false), // 容器不存在
+            Some((None,)) => Ok(allow_shared), // 全局共享容器
+            Some((Some(owner_id),)) => Ok(owner_id == user_id), // 检查所有权
+        }
+    }
+
+    /// 获取单个容器信息（包含健康检查）- 带用户权限验证
+    pub async fn get_container_for_user(&self, id: &str, user_id: &str) -> Result<ContainerInfo> {
+        // 验证用户有权限查看（包括共享容器）
+        if !self.check_container_permission(id, user_id, true).await? {
+            anyhow::bail!("Container not found or access denied");
+        }
+        self.get_container(id).await
+    }
+
     /// 获取单个容器信息（包含健康检查）
     pub async fn get_container(&self, id: &str) -> Result<ContainerInfo> {
         let containers = self.list_containers().await?;
@@ -579,6 +708,15 @@ impl DockerManager {
         Ok(container)
     }
 
+    /// 停止容器 - 带用户权限验证
+    pub async fn stop_container_for_user(&self, id: &str, user_id: &str) -> Result<()> {
+        // 只有容器所有者可以停止（不允许操作共享容器）
+        if !self.check_container_permission(id, user_id, false).await? {
+            anyhow::bail!("Container not found or access denied");
+        }
+        self.stop_container(id).await
+    }
+
     /// 停止容器
     pub async fn stop_container(&self, id: &str) -> Result<()> {
         let options = StopContainerOptions {
@@ -592,6 +730,15 @@ impl DockerManager {
         Ok(())
     }
 
+    /// 启动容器 - 带用户权限验证
+    pub async fn start_container_for_user(&self, id: &str, user_id: &str) -> Result<()> {
+        // 只有容器所有者可以启动（不允许操作共享容器）
+        if !self.check_container_permission(id, user_id, false).await? {
+            anyhow::bail!("Container not found or access denied");
+        }
+        self.start_container(id).await
+    }
+
     /// 启动容器
     pub async fn start_container(&self, id: &str) -> Result<()> {
         self.docker
@@ -599,6 +746,15 @@ impl DockerManager {
             .await
             .context("Failed to start container")?;
         Ok(())
+    }
+
+    /// 删除容器 - 带用户权限验证
+    pub async fn delete_container_for_user(&self, id: &str, user_id: &str) -> Result<()> {
+        // 只有容器所有者可以删除（不允许删除共享容器）
+        if !self.check_container_permission(id, user_id, false).await? {
+            anyhow::bail!("Container not found or access denied");
+        }
+        self.delete_container(id).await
     }
 
     /// 删除容器
@@ -614,7 +770,24 @@ impl DockerManager {
             .remove_container(id, Some(options))
             .await
             .context("Failed to remove container")?;
+
+        // 从数据库删除容器记录
+        sqlx::query("DELETE FROM containers WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete container from database")?;
+
         Ok(())
+    }
+
+    /// 获取容器日志 - 带用户权限验证
+    pub async fn get_container_logs_for_user(&self, id: &str, user_id: &str, tail: Option<usize>) -> Result<String> {
+        // 用户可以查看自己的容器和共享容器的日志
+        if !self.check_container_permission(id, user_id, true).await? {
+            anyhow::bail!("Container not found or access denied");
+        }
+        self.get_container_logs(id, tail).await
     }
 
     /// 获取容器日志

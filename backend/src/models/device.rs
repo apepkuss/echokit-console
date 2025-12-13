@@ -34,6 +34,8 @@ pub struct Device {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_connected_at: Option<i64>,
     pub status: DeviceStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub firmware_version: Option<String>,
 }
 
 /// 设备注册请求
@@ -52,4 +54,26 @@ pub struct RegisterDeviceRequest {
 #[serde(rename_all = "camelCase")]
 pub struct BindServerRequest {
     pub container_id: String,
+}
+
+/// 设备信息上报请求（OTA 后上报固件版本）
+///
+/// 同时支持 snake_case 和 camelCase 两种格式
+#[derive(Debug, Deserialize)]
+pub struct ReportDeviceInfoRequest {
+    /// 设备 ID（12 位小写十六进制）
+    #[serde(alias = "deviceId")]
+    pub device_id: String,
+    /// MAC 地址（12 位小写十六进制）
+    #[serde(alias = "macAddress")]
+    pub mac_address: String,
+    /// 固件版本
+    #[serde(alias = "firmwareVersion")]
+    pub firmware_version: String,
+}
+
+/// 设备信息上报响应
+#[derive(Debug, Serialize)]
+pub struct ReportDeviceInfoResponse {
+    pub status: String,
 }

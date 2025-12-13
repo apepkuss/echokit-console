@@ -8,7 +8,6 @@ import {
   Upload,
   Progress,
   Result,
-  Space,
   Alert,
   message,
 } from 'antd';
@@ -30,8 +29,6 @@ interface RegisterDeviceModalProps {
   onCancel: () => void;
   onSuccess: () => void;
 }
-
-type StepStatus = 'wait' | 'process' | 'finish' | 'error';
 
 const RegisterDeviceModal: React.FC<RegisterDeviceModalProps> = ({
   open,
@@ -260,15 +257,16 @@ const RegisterDeviceModal: React.FC<RegisterDeviceModalProps> = ({
               </Form.Item>
 
               <Form.Item
-                label="服务器 URL"
+                label="Proxy 服务器地址"
                 name="serverUrl"
+                tooltip="设备将通过此地址连接到 EchoKit Proxy，Proxy 会根据设备绑定关系转发到对应的服务器"
                 rules={[
-                  { required: true, message: '请输入服务器 URL' },
+                  { required: true, message: '请输入 Proxy 服务器地址' },
                   { type: 'url', message: '请输入有效的 URL' },
                 ]}
-                initialValue="wss://192.168.0.102:10086/ws"
+                initialValue={import.meta.env.VITE_PROXY_WS_URL || 'wss://proxy.echokit.dev/ws'}
               >
-                <Input placeholder="例如：wss://192.168.0.102:10086/ws" />
+                <Input placeholder="例如：wss://proxy.echokit.dev/ws" />
               </Form.Item>
 
               <Form.Item label="背景图片（可选）" name="backgroundImage">

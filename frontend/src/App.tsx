@@ -1,10 +1,12 @@
-import { useState, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { ConfigProvider, Layout, Typography, Button, theme, Space } from 'antd';
-import { MenuFoldOutlined, PlusOutlined, LaptopOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { useState, useCallback, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { ConfigProvider, Layout, Typography, Button, theme, Space, Dropdown, Avatar, Spin } from 'antd';
+import { MenuFoldOutlined, PlusOutlined, LaptopOutlined, CloudServerOutlined, UserOutlined, SettingOutlined, LogoutOutlined, MobileOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { Dashboard, Device } from './pages';
-import { DeployForm } from './components';
+import { Dashboard, Device, DeviceActivation, Login, Register, Settings } from './pages';
+import { DeployForm, ProtectedRoute } from './components';
+import { useAuthStore } from './stores';
 import './App.css';
 
 const { Header, Content, Sider } = Layout;
@@ -14,14 +16,17 @@ const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 400;
 
 function AppLayout() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [siderWidth, setSiderWidth] = useState(DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, logout } = useAuthStore();
 
   const isServerPage = location.pathname === '/server';
+  const isActivatePage = location.pathname === '/activate';
+  const isDevicePage = location.pathname === '/devices';
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -46,6 +51,37 @@ function AppLayout() {
     document.addEventListener('mouseup', handleMouseUp);
   }, [siderWidth]);
 
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  const userMenuItems: MenuProps['items'] = [
+    {
+      key: 'user-info',
+      label: (
+        <div style={{ padding: '4px 0' }}>
+          <div style={{ fontWeight: 500 }}>{user?.name || '未设置名称'}</div>
+          <div style={{ fontSize: 12, color: '#888' }}>{user?.email}</div>
+        </div>
+      ),
+      disabled: true,
+    },
+    { type: 'divider' },
+    {
+      key: 'settings',
+      icon: <SettingOutlined />,
+      label: '账户设置',
+      onClick: () => navigate('/settings'),
+    },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录',
+      onClick: handleLogout,
+    },
+  ];
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header
@@ -60,12 +96,20 @@ function AppLayout() {
         <Typography.Title level={4} style={{ color: '#fff', margin: 0 }}>
           EchoKit Console
         </Typography.Title>
-        <Space>
+        <Space style={{ flex: 1 }}>
           <Button
-            type={!isServerPage ? 'primary' : 'text'}
+            type={isActivatePage ? 'primary' : 'text'}
+            icon={<MobileOutlined />}
+            onClick={() => navigate('/activate')}
+            style={{ color: isActivatePage ? undefined : '#fff' }}
+          >
+            激活设备
+          </Button>
+          <Button
+            type={isDevicePage ? 'primary' : 'text'}
             icon={<LaptopOutlined />}
-            onClick={() => navigate('/')}
-            style={{ color: !isServerPage ? undefined : '#fff' }}
+            onClick={() => navigate('/devices')}
+            style={{ color: isDevicePage ? undefined : '#fff' }}
           >
             设备
           </Button>
@@ -78,6 +122,14 @@ function AppLayout() {
             服务器
           </Button>
         </Space>
+        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+          <Button type="text" style={{ color: '#fff', padding: '4px 8px' }}>
+            <Space>
+              <Avatar size="small" icon={<UserOutlined />} />
+              <span>{user?.name || user?.email?.split('@')[0] || '用户'}</span>
+            </Space>
+          </Button>
+        </Dropdown>
       </Header>
       <Layout>
         {isServerPage && (
@@ -149,8 +201,11 @@ function AppLayout() {
         )}
         <Content style={{ background: '#f5f5f5' }}>
           <Routes>
-            <Route path="/" element={<Device />} />
+            <Route path="/" element={<Navigate to="/devices" replace />} />
+            <Route path="/devices" element={<Device />} />
+            <Route path="/activate" element={<DeviceActivation />} />
             <Route path="/server" element={<Dashboard />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
         </Content>
       </Layout>
@@ -158,11 +213,66 @@ function AppLayout() {
   );
 }
 
+function AuthInitializer({ children }: { children: React.ReactNode }) {
+  const { initialize, isInitialized } = useAuthStore();
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  if (!isInitialized) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Spin size="large" tip="加载中..." />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+function AppRoutes() {
+  const { isAuthenticated } = useAuthStore();
+
+  return (
+    <Routes>
+      {/* 公开路由 */}
+      <Route
+        path="/login"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
+      />
+      <Route
+        path="/register"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <Register />}
+      />
+
+      {/* 受保护的路由 */}
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  );
+}
+
 function App() {
   return (
     <ConfigProvider locale={zhCN}>
       <BrowserRouter>
-        <AppLayout />
+        <AuthInitializer>
+          <AppRoutes />
+        </AuthInitializer>
       </BrowserRouter>
     </ConfigProvider>
   );

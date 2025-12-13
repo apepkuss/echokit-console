@@ -121,4 +121,21 @@ export const deviceService = {
 
     await api.delete(`/devices/${encodeURIComponent(deviceId)}/bind`);
   },
+
+  // 确认激活码（用户确认设备绑定）
+  confirmActivation: async (request: ConfirmActivationRequest): Promise<ConfirmActivationResponse> => {
+    const response = await api.post<ConfirmActivationResponse>('/activation/confirm', request);
+    return response.data;
+  },
 };
+
+// 激活相关类型
+export interface ConfirmActivationRequest {
+  code: string;
+  deviceName?: string;
+}
+
+export interface ConfirmActivationResponse {
+  status: string;
+  deviceId: string;
+}

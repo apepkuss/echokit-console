@@ -43,6 +43,9 @@ pub struct Device {
 
     /// 设备状态
     pub status: DeviceStatus,
+
+    /// 所属用户 ID
+    pub user_id: Option<String>,
 }
 
 /// 容器信息

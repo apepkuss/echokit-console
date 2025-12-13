@@ -1,5 +1,41 @@
 import type { BluetoothConfig } from '../types/device';
 
+// Web Bluetooth API 类型声明
+declare global {
+  interface Navigator {
+    bluetooth: {
+      requestDevice(options: RequestDeviceOptions): Promise<BluetoothDevice>;
+    };
+  }
+
+  interface RequestDeviceOptions {
+    filters?: Array<{ services?: string[]; name?: string; namePrefix?: string }>;
+    optionalServices?: string[];
+  }
+
+  interface BluetoothDevice {
+    id: string;
+    name?: string;
+    gatt?: BluetoothRemoteGATTServer;
+  }
+
+  interface BluetoothRemoteGATTServer {
+    connected: boolean;
+    connect(): Promise<BluetoothRemoteGATTServer>;
+    disconnect(): void;
+    getPrimaryService(service: string): Promise<BluetoothRemoteGATTService>;
+  }
+
+  interface BluetoothRemoteGATTService {
+    getCharacteristic(characteristic: string): Promise<BluetoothRemoteGATTCharacteristic>;
+  }
+
+  interface BluetoothRemoteGATTCharacteristic {
+    readValue(): Promise<DataView>;
+    writeValue(value: BufferSource): Promise<void>;
+  }
+}
+
 // BLE 特征值 UUID（来自 echokit/setup/index.html）
 const BLE_SERVICE_UUID = '623fa3e2-631b-4f8f-a6e7-a7b09c03e7e0';
 const BLE_CHARACTERISTIC_MAC_ADDRESS = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';

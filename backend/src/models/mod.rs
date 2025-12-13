@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize};
 mod device;
 pub use device::*;
 
+// 用户相关模型
+mod user;
+pub use user::*;
+
+// 激活相关模型
+mod activation;
+pub use activation::*;
+
 /// ASR 配置 - 根据平台类型区分
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "platform")]

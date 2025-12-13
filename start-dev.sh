@@ -39,7 +39,7 @@ echo ""
 # ============================================================
 # 1. 启动 PostgreSQL 容器
 # ============================================================
-log_info "步骤 1/4: 启动 PostgreSQL 数据库..."
+log_info "步骤 1/5: 启动 PostgreSQL 数据库..."
 
 if docker ps -a --format '{{.Names}}' | grep -q "^echokit-postgres$"; then
     if docker ps --format '{{.Names}}' | grep -q "^echokit-postgres$"; then
@@ -77,9 +77,45 @@ fi
 echo ""
 
 # ============================================================
-# 2. 启动 Backend
+# 2. 启动 Redis 容器
 # ============================================================
-log_info "步骤 2/4: 启动 Backend 服务..."
+log_info "步骤 2/5: 启动 Redis 服务..."
+
+if docker ps -a --format '{{.Names}}' | grep -q "^echokit-redis$"; then
+    if docker ps --format '{{.Names}}' | grep -q "^echokit-redis$"; then
+        log_success "Redis 容器已在运行"
+    else
+        log_info "启动已存在的 Redis 容器..."
+        docker start echokit-redis
+        log_success "Redis 容器已启动"
+    fi
+else
+    log_info "创建并启动新的 Redis 容器..."
+    docker run -d \
+        --name echokit-redis \
+        -p 6379:6379 \
+        redis:7-alpine
+    log_success "Redis 容器创建成功"
+fi
+
+# 等待 Redis 启动
+log_info "等待 Redis 就绪..."
+sleep 2
+
+# 验证 Redis 连接
+if docker exec echokit-redis redis-cli ping > /dev/null 2>&1; then
+    log_success "Redis 连接正常"
+else
+    log_error "Redis 连接失败"
+    exit 1
+fi
+
+echo ""
+
+# ============================================================
+# 3. 启动 Backend
+# ============================================================
+log_info "步骤 3/5: 启动 Backend 服务..."
 
 # 检查 Backend 目录
 if [ ! -d "backend" ]; then
@@ -106,9 +142,9 @@ fi
 echo ""
 
 # ============================================================
-# 3. 启动 Proxy
+# 4. 启动 Proxy
 # ============================================================
-log_info "步骤 3/4: 启动 Proxy 服务..."
+log_info "步骤 4/5: 启动 Proxy 服务..."
 
 # 检查 Proxy 目录
 if [ ! -d "proxy" ]; then
@@ -135,9 +171,9 @@ fi
 echo ""
 
 # ============================================================
-# 4. 启动 Frontend
+# 5. 启动 Frontend
 # ============================================================
-log_info "步骤 4/4: 启动 Frontend 服务..."
+log_info "步骤 5/5: 启动 Frontend 服务..."
 
 # 检查 Frontend 目录
 if [ ! -d "frontend" ]; then
@@ -184,9 +220,16 @@ echo ""
 
 # 检查 PostgreSQL
 if docker ps --format '{{.Names}}' | grep -q "^echokit-postgres$"; then
-    echo -e "  ${GREEN}✓${NC} PostgreSQL  : http://localhost:5432"
+    echo -e "  ${GREEN}✓${NC} PostgreSQL  : localhost:5432"
 else
     echo -e "  ${RED}✗${NC} PostgreSQL  : 未运行"
+fi
+
+# 检查 Redis
+if docker ps --format '{{.Names}}' | grep -q "^echokit-redis$"; then
+    echo -e "  ${GREEN}✓${NC} Redis       : localhost:6379"
+else
+    echo -e "  ${RED}✗${NC} Redis       : 未运行"
 fi
 
 # 检查 Backend

@@ -10,9 +10,9 @@ import {
   message,
   Typography,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, LinkOutlined, DisconnectOutlined } from '@ant-design/icons';
+import { MobileOutlined, DeleteOutlined, LinkOutlined, DisconnectOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import RegisterDeviceModal from '../components/RegisterDeviceModal';
+import ActivateDeviceModal from '../components/ActivateDeviceModal';
 import { deviceService } from '../services/deviceApi';
 import { deployService } from '../services/api';
 import type { Device, DeviceStatus } from '../types/device';
@@ -20,11 +20,23 @@ import type { ContainerInfo } from '../types';
 
 const { Text } = Typography;
 
+/**
+ * 格式化 MAC 地址为标准格式（带冒号，大写）
+ * 例如：98a316f0b1e4 -> 98:A3:16:F0:B1:E4
+ */
+const formatMacAddress = (mac: string): string => {
+  if (!mac) return '';
+  // 移除可能存在的冒号和空格，转大写
+  const clean = mac.replace(/[:\s-]/g, '').toUpperCase();
+  // 每两个字符插入冒号
+  return clean.match(/.{1,2}/g)?.join(':') || mac;
+};
+
 export function Device() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [containers, setContainers] = useState<ContainerInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [registerModalVisible, setRegisterModalVisible] = useState(false);
+  const [activateModalVisible, setActivateModalVisible] = useState(false);
   const [bindingDeviceId, setBindingDeviceId] = useState<string | null>(null);
 
   // 加载设备列表
@@ -128,11 +140,10 @@ export function Device() {
     }
   };
 
-  // 注册成功回调
-  const handleRegisterSuccess = () => {
-    setRegisterModalVisible(false);
+  // 激活成功回调
+  const handleActivateSuccess = () => {
+    setActivateModalVisible(false);
     loadDevices();
-    message.success('设备注册成功');
   };
 
   // 格式化时间戳
@@ -167,7 +178,7 @@ export function Device() {
       key: 'macAddress',
       width: 180,
       align: 'center',
-      render: (mac: string) => <Text code>{mac}</Text>,
+      render: (mac: string) => <Text code>{formatMacAddress(mac)}</Text>,
     },
     {
       title: '状态',
@@ -176,6 +187,14 @@ export function Device() {
       width: 100,
       align: 'center',
       render: renderStatus,
+    },
+    {
+      title: '固件版本',
+      dataIndex: 'firmwareVersion',
+      key: 'firmwareVersion',
+      width: 120,
+      align: 'center',
+      render: (version?: string) => version ? <Text code>{version}</Text> : '-',
     },
     {
       title: 'EchoKit 服务器',
@@ -275,12 +294,17 @@ export function Device() {
             <Button
               type="primary"
               size="small"
-              icon={<PlusOutlined />}
-              onClick={() => setRegisterModalVisible(true)}
+              icon={<MobileOutlined />}
+              onClick={() => setActivateModalVisible(true)}
             >
-              注册设备
+              激活设备
             </Button>
           </Space>
+        }
+        extra={
+          <Button icon={<ReloadOutlined />} onClick={loadDevices} loading={loading}>
+            刷新
+          </Button>
         }
       >
         <Table
@@ -296,10 +320,10 @@ export function Device() {
         />
       </Card>
 
-      <RegisterDeviceModal
-        open={registerModalVisible}
-        onCancel={() => setRegisterModalVisible(false)}
-        onSuccess={handleRegisterSuccess}
+      <ActivateDeviceModal
+        open={activateModalVisible}
+        onCancel={() => setActivateModalVisible(false)}
+        onSuccess={handleActivateSuccess}
       />
     </div>
   );

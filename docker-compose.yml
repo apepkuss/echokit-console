@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  # Redis 缓存（用于设备激活码）
+  redis:
+    image: redis:7-alpine
+    container_name: echokit-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - echokit-network
+
   # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
@@ -35,12 +52,16 @@ services:
       LOG_LEVEL: info
       ECHOKIT_HOST: host.docker.internal
       DB_POOL_SIZE: 10
+      BACKEND_URL: http://backend:3000  # Backend API 地址（HTTP 代理用）
+      HTTP_PROXY_TIMEOUT_MS: 30000      # HTTP 代理超时时间（毫秒）
     ports:
-      - "10086:10086"  # WebSocket 端口
+      - "10086:10086"  # WebSocket + HTTP API 代理端口
       - "10087:10087"  # 健康检查端口
     depends_on:
       postgres:
         condition: service_healthy
+      backend:
+        condition: service_started
     networks:
       - echokit-network
     restart: unless-stopped
@@ -55,13 +76,16 @@ services:
       SERVER_ADDR: 0.0.0.0
       SERVER_PORT: 3000
       DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit
+      REDIS_URL: redis://redis:6379
+      ACTIVATION_TTL_SECONDS: 300
+      PROXY_WS_URL: ws://192.168.0.103:10086/ws
       DOCKER_IMAGE: secondstate/echokit:latest-server-vad
       CONFIG_DIR: /app/data/configs
       RECORD_DIR: /app/data/records
       HELLO_WAV_PATH: /app/data/hello.wav
       PORT_RANGE_START: 8080
       PORT_RANGE_END: 8180
-      # EXTERNAL_HOST: 192.168.1.100  # 外部访问地址（可选，用于替换 localhost）
+      EXTERNAL_HOST: 192.168.0.103  # 外部访问地址（可选，用于替换 localhost）
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket
       - backend_data:/app/data
@@ -69,6 +93,8 @@ services:
       - "3000:3000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - echokit-network
@@ -91,6 +117,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  redis_data:
+    driver: local
   postgres_data:
     driver: local
   backend_data:
