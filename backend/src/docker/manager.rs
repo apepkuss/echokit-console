@@ -538,7 +538,7 @@ impl DockerManager {
             .unwrap()
             .as_secs() as i64;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO containers (id, name, host, port, use_tls, is_default, is_external, created_at, user_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -549,16 +549,16 @@ impl DockerManager {
                 use_tls = EXCLUDED.use_tls,
                 updated_at = $8
             "#,
-            response.id,
-            container_name,
-            container_host,
-            port as i32,
-            false, // use_tls
-            false, // is_default
-            false, // is_external
-            now,
-            user_id
         )
+        .bind(&response.id)
+        .bind(&container_name)
+        .bind(&container_host)
+        .bind(port as i32)
+        .bind(false) // use_tls
+        .bind(false) // is_default
+        .bind(false) // is_external
+        .bind(now)
+        .bind(user_id)
         .execute(&self.pool)
         .await
         .context("Failed to insert container info to database")?;
