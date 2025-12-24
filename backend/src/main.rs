@@ -66,8 +66,12 @@ async fn main() -> anyhow::Result<()> {
     info!("Redis connected successfully (activation TTL: {}s)", activation_ttl);
 
     // 获取 Proxy WebSocket URL
-    let proxy_ws_url = std::env::var("PROXY_WS_URL")
-        .unwrap_or_else(|_| "ws://localhost:10086/ws".to_string());
+    // 优先使用 PROXY_WS_URL，否则从 PROXY_EXTERNAL_HOST 和 PROXY_EXTERNAL_PORT 构建
+    let proxy_ws_url = std::env::var("PROXY_WS_URL").unwrap_or_else(|_| {
+        let host = std::env::var("PROXY_EXTERNAL_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port = std::env::var("PROXY_EXTERNAL_PORT").unwrap_or_else(|_| "10086".to_string());
+        format!("ws://{}:{}/ws", host, port)
+    });
     info!("Proxy WebSocket URL: {}", proxy_ws_url);
 
     // 初始化 Docker 管理器
