@@ -40,20 +40,31 @@ services:
       - echokit-network
 
   # EchoKit Proxy 服务
+  # 负责设备 WebSocket 连接代理和 HTTP API 转发
   proxy:
     build:
       context: ./proxy
       dockerfile: Dockerfile
     container_name: echokit-proxy
     environment:
-      DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit
-      PROXY_PORT: 10086
-      HEALTH_CHECK_PORT: 10087
-      LOG_LEVEL: info
-      ECHOKIT_HOST: host.docker.internal
-      DB_POOL_SIZE: 10
-      BACKEND_URL: http://backend:3000  # Backend API 地址（HTTP 代理用）
-      HTTP_PROXY_TIMEOUT_MS: 30000      # HTTP 代理超时时间（毫秒）
+      # --- 数据库配置 ---
+      DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit  # PostgreSQL 连接字符串
+      DB_POOL_SIZE: 10                  # 数据库连接池大小
+      # --- 服务端口配置 ---
+      PROXY_PORT: 10086                 # WebSocket + HTTP API 代理端口
+      HEALTH_CHECK_PORT: 10087          # 健康检查端口（用于 Docker/K8s 探针）
+      # --- WebSocket 配置 ---
+      WS_TIMEOUT: 300                   # WebSocket 连接超时（秒）
+      # --- EchoKit Server 连接配置 ---
+      ECHOKIT_HOST: host.docker.internal  # EchoKit Server 容器主机地址（Docker 环境）
+      # --- Backend API 配置 ---
+      BACKEND_URL: http://backend:3000  # Backend API 地址（端口需与 backend 的 SERVER_PORT 一致）
+      HTTP_PROXY_TIMEOUT_MS: 30000      # HTTP 代理请求超时（毫秒）
+      # --- 日志配置 ---
+      LOG_LEVEL: info                   # 日志级别: trace, debug, info, warn, error
+      # --- 对外访问地址（分布式部署时配置）---
+      EXTERNAL_HOST: 192.168.0.104      # Proxy 对外访问 IP（设备连接地址）
+      EXTERNAL_PORT: 10086              # Proxy 对外访问端口
     ports:
       - "10086:10086"  # WebSocket + HTTP API 代理端口
       - "10087:10087"  # 健康检查端口
@@ -66,26 +77,36 @@ services:
       - echokit-network
     restart: unless-stopped
 
-  # Backend API 服务
+  # Backend 服务
+  # 提供 REST API、用户认证、设备管理、容器编排等功能
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: echokit-backend
     environment:
-      SERVER_ADDR: 0.0.0.0
-      SERVER_PORT: 3000
-      DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit
-      REDIS_URL: redis://redis:6379
-      ACTIVATION_TTL_SECONDS: 300
-      PROXY_WS_URL: ws://192.168.0.103:10086/ws
-      DOCKER_IMAGE: secondstate/echokit:latest-server-vad
-      CONFIG_DIR: /app/data/configs
-      RECORD_DIR: /app/data/records
-      HELLO_WAV_PATH: /app/data/hello.wav
-      PORT_RANGE_START: 8080
-      PORT_RANGE_END: 8180
-      EXTERNAL_HOST: 192.168.0.103  # 外部访问地址（可选，用于替换 localhost）
+      # --- 服务器配置 ---
+      SERVER_ADDR: 0.0.0.0              # 监听地址（0.0.0.0 表示所有网络接口）
+      SERVER_PORT: 3000                 # 服务端口
+      # --- 数据库配置 ---
+      DATABASE_URL: postgres://echokit:echokit@postgres:5432/echokit  # PostgreSQL 连接字符串
+      # --- Redis 配置 ---
+      REDIS_URL: redis://redis:6379     # Redis 连接地址（用于激活码缓存）
+      ACTIVATION_TTL_SECONDS: 300       # 激活码有效期（秒）
+      # --- JWT 认证配置 ---
+      JWT_SECRET: echokit-jwt-secret-change-in-production  # JWT 签名密钥（生产环境必须更改！）
+      # --- Proxy 连接配置 ---
+      PROXY_EXTERNAL_HOST: 192.168.0.104  # Proxy 对外访问 IP（与 proxy 的 EXTERNAL_HOST 一致）
+      PROXY_EXTERNAL_PORT: 10086          # Proxy 对外访问端口（与 proxy 的 EXTERNAL_PORT 一致）
+      # --- Docker 容器管理配置 ---
+      DOCKER_IMAGE: secondstate/echokit:latest-server-vad  # EchoKit Server 镜像
+      CONFIG_DIR: /app/data/configs     # AI 模型配置文件目录
+      RECORD_DIR: /app/data/records     # 录音文件目录
+      HELLO_WAV_PATH: /app/data/hello.wav  # 欢迎语音频文件
+      PORT_RANGE_START: 8080            # 容器端口范围起始
+      PORT_RANGE_END: 8180              # 容器端口范围结束
+      # --- 外部访问配置 ---
+      EXTERNAL_HOST: 192.168.0.104      # Backend 对外访问 IP（用于容器 WebSocket URL）
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket
       - backend_data:/app/data
@@ -106,8 +127,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: echokit-frontend
-    environment:
-      VITE_API_URL: http://localhost:3000
     ports:
       - "80:80"
     depends_on:
