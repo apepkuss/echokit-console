@@ -1,5 +1,5 @@
 # 构建阶段
-FROM rust:1.83-slim as builder
+FROM rust:1.92-slim as builder
 
 # 安装编译依赖
 RUN apt-get update && apt-get install -y \
@@ -10,20 +10,25 @@ RUN apt-get update && apt-get install -y \
 # 设置工作目录
 WORKDIR /app
 
-# 复制依赖文件
+# 复制 workspace 根目录的 Cargo.toml 和 Cargo.lock
 COPY Cargo.toml Cargo.lock ./
 
+# 复制子项目的 Cargo.toml（用于依赖缓存）
+COPY backend/Cargo.toml ./backend/
+COPY proxy/Cargo.toml ./proxy/
+
 # 创建虚拟 main.rs 用于缓存依赖
-RUN mkdir src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
+RUN mkdir -p backend/src proxy/src && \
+    echo "fn main() {}" > backend/src/main.rs && \
+    echo "fn main() {}" > proxy/src/main.rs && \
+    cargo build --release -p echokit-backend && \
+    rm -rf backend/src target/release/echokit-backend target/release/deps/echokit_backend*
 
-# 复制源代码
-COPY src ./src
+# 复制 backend 源代码（保留 proxy 的虚拟代码以满足 workspace 要求）
+COPY backend/src ./backend/src
 
-# 构建应用
-RUN cargo build --release
+# 构建 backend 应用
+RUN cargo build --release -p echokit-backend
 
 # 运行阶段
 FROM debian:bookworm-slim
@@ -32,6 +37,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 创建非 root 用户
@@ -45,10 +51,7 @@ RUN mkdir -p /app/data/configs /app/data/records && \
     chown -R echokit:echokit /app/data
 
 # 从构建阶段复制二进制文件
-COPY --from=builder /app/target/release/echokit-console /usr/local/bin/echokit-backend
-
-# 复制静态文件（如果有）
-COPY data /app/data
+COPY --from=builder /app/target/release/echokit-backend /usr/local/bin/echokit-backend
 
 # 切换到非 root 用户
 USER echokit

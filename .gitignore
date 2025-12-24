@@ -24,4 +24,6 @@ target/
 # 运行时数据
 backend/data/
 
+data/
+
 docs/

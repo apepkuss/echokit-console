@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Redis 缓存（用于设备激活码）
   redis:
@@ -43,8 +41,8 @@ services:
   # 负责设备 WebSocket 连接代理和 HTTP API 转发
   proxy:
     build:
-      context: ./proxy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: proxy/Dockerfile
     container_name: echokit-proxy
     environment:
       # --- 数据库配置 ---
@@ -81,8 +79,8 @@ services:
   # 提供 REST API、用户认证、设备管理、容器编排等功能
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: echokit-backend
     environment:
       # --- 服务器配置 ---
