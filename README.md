@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://www.youtube.com/watch?v=aebEQSI092s">
     <img
-      src="https://img.youtube.com/vi/aebEQSI092s/hqdefault.jpg
+      src="https://img.youtube.com/vi/aebEQSI092s/0.jpg
 "
       alt="EchoKit Console Demo"
       width="600"
