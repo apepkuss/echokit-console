@@ -95,9 +95,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // 登出
   logout: async () => {
+    // 如果已经在登出中或未认证，直接返回
+    const state = get();
+    if (!state.isAuthenticated && !state.user) {
+      return;
+    }
+
     set({ isLoading: true });
     try {
       await authService.logout();
+    } catch {
+      // 忽略登出 API 错误（可能 token 已过期）
     } finally {
       set({
         user: null,

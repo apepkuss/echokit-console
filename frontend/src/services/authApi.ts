@@ -31,15 +31,28 @@ authApi.interceptors.request.use(
   }
 );
 
-// 响应拦截器：处理 401 错误
+// 响应拦截器：处理 401 错误和错误信息
 authApi.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 提取后端返回的错误信息
+    if (error.response?.data?.error) {
+      error.message = error.response.data.error;
+    } else if (error.response?.data?.message) {
+      error.message = error.response.data.message;
+    }
+
     if (error.response?.status === 401) {
-      // Token 过期或无效，清除本地存储
-      localStorage.removeItem(TOKEN_KEY);
-      // 触发自定义事件，通知应用需要重新登录
-      window.dispatchEvent(new CustomEvent('auth:logout'));
+      // 登录接口的 401 不触发自动登出，让调用方处理
+      const isLoginRequest = error.config?.url?.includes('/auth/login');
+      const isLogoutRequest = error.config?.url?.includes('/auth/logout');
+
+      if (!isLoginRequest && !isLogoutRequest) {
+        // Token 过期或无效，清除本地存储
+        localStorage.removeItem(TOKEN_KEY);
+        // 触发自定义事件，通知应用需要重新登录
+        window.dispatchEvent(new CustomEvent('auth:logout'));
+      }
     }
     return Promise.reject(error);
   }
