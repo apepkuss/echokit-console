@@ -135,7 +135,9 @@ impl DockerManager {
 
     /// 执行 HTTP 健康检查
     async fn check_http_health(&self, port: u16) -> bool {
-        let url = format!("http://localhost:{}/", port);
+        // 使用 health_check_host 配置项
+        // 在 Docker 容器中运行时，需要使用 host.docker.internal 访问宿主机端口
+        let url = format!("http://{}:{}/", self.config.health_check_host, port);
         match self.http_client.get(&url).send().await {
             // 只要能收到响应就认为服务可用（即使是 404 也说明服务在运行）
             Ok(_) => true,

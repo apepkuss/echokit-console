@@ -25,6 +25,9 @@ pub struct AppConfig {
     /// 宿主机数据目录（用于 Docker 挂载时的路径映射）
     /// 当 backend 运行在容器中时，需要将容器内的 /app/data 映射到宿主机的实际路径
     pub host_data_dir: Option<String>,
+    /// 健康检查时使用的主机地址
+    /// 当 Backend 运行在 Docker 容器中时，使用 host.docker.internal 访问宿主机端口
+    pub health_check_host: String,
 }
 
 impl Default for AppConfig {
@@ -40,6 +43,7 @@ impl Default for AppConfig {
             port_range_end: 8180,
             external_host: None,
             host_data_dir: None,
+            health_check_host: "localhost".to_string(),
         }
     }
 }
@@ -69,6 +73,8 @@ impl AppConfig {
                 .unwrap_or(8180),
             external_host: env::var("EXTERNAL_HOST").ok(),
             host_data_dir: env::var("HOST_DATA_DIR").ok(),
+            health_check_host: env::var("HEALTH_CHECK_HOST")
+                .unwrap_or_else(|_| "localhost".to_string()),
         }
     }
 

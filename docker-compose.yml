@@ -106,6 +106,8 @@ services:
       PORT_RANGE_END: 8180              # 容器端口范围结束
       # --- 外部访问配置 ---
       EXTERNAL_HOST: 192.168.0.104      # Backend 对外访问 IP（用于容器 WebSocket URL）
+      # --- 健康检查配置 ---
+      HEALTH_CHECK_HOST: host.docker.internal  # 健康检查时访问宿主机的地址
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket
       - ${HOST_DATA_DIR:-./echokit-data}:/app/data  # 数据目录（使用 bind mount）
