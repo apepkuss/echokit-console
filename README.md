@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <em>EchoKit Console Demo: Deployment, Device Registration & Custom Server Setup</em>
+  <em>点击观看 EchoKit Console Demo: Deployment, Device Registration & Custom Server Setup</em>
 </p>
 
 - Step 1: 部署服务
