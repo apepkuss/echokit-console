@@ -35,11 +35,11 @@ authApi.interceptors.request.use(
 authApi.interceptors.response.use(
   (response) => response,
   (error) => {
-    // 提取后端返回的错误信息
-    if (error.response?.data?.error) {
-      error.message = error.response.data.error;
-    } else if (error.response?.data?.message) {
+    // 提取后端返回的错误信息（优先使用 message 字段）
+    if (error.response?.data?.message) {
       error.message = error.response.data.message;
+    } else if (error.response?.data?.error) {
+      error.message = error.response.data.error;
     }
 
     if (error.response?.status === 401) {

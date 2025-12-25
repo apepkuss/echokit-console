@@ -44,9 +44,11 @@ api.interceptors.response.use(
 
 // 部署相关 API
 export const deployService = {
-  // 部署新的 EchoKit 实例
+  // 部署新的 EchoKit 实例（超时时间延长到 5 分钟，因为可能需要拉取 Docker 镜像）
   deploy: async (request: DeployRequest): Promise<DeployResponse> => {
-    const response = await api.post<DeployResponse>('/deploy', request);
+    const response = await api.post<DeployResponse>('/deploy', request, {
+      timeout: 300000, // 5 分钟
+    });
     return response.data;
   },
 

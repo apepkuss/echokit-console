@@ -141,7 +141,7 @@ pub async fn login(
             StatusCode::UNAUTHORIZED,
             Json(json!({
                 "error": "invalid_credentials",
-                "message": "Invalid email or password"
+                "message": "邮箱或密码错误"
             })),
         )
             .into_response(),
