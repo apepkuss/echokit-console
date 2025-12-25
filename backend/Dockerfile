@@ -40,21 +40,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 创建非 root 用户
-RUN useradd -m -u 1000 echokit
-
 # 设置工作目录
 WORKDIR /app
 
 # 创建数据目录
-RUN mkdir -p /app/data/configs /app/data/records && \
-    chown -R echokit:echokit /app/data
+RUN mkdir -p /app/data/configs /app/data/records
 
 # 从构建阶段复制二进制文件
 COPY --from=builder /app/target/release/echokit-backend /usr/local/bin/echokit-backend
 
-# 切换到非 root 用户
-USER echokit
+# 注意：Backend 需要访问 Docker socket 来管理容器，因此以 root 用户运行
 
 # 暴露端口
 EXPOSE 3000

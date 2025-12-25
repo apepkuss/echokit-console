@@ -426,6 +426,7 @@ impl DockerManager {
         );
 
         // 配置卷挂载
+        // 获取容器内的绝对路径
         let config_path_abs = fs::canonicalize(&config_path)
             .await
             .context(format!("Failed to resolve config path: {:?}", config_path))?;
@@ -433,16 +434,21 @@ impl DockerManager {
             .await
             .context(format!("Failed to resolve record directory: {:?}", record_dir))?;
 
+        // 转换为宿主机路径（如果配置了 HOST_DATA_DIR）
+        let config_path_host = self.config.to_host_path(&config_path_abs.to_string_lossy());
+        let record_dir_host = self.config.to_host_path(&record_dir_abs.to_string_lossy());
+
         let mut binds = vec![
-            format!("{}:/app/config.toml:ro", config_path_abs.display()),
-            format!("{}:/app/record", record_dir_abs.display()),
+            format!("{}:/app/config.toml:ro", config_path_host),
+            format!("{}:/app/record", record_dir_host),
         ];
 
         if hello_wav_dest.exists() {
             let hello_wav_abs = fs::canonicalize(&hello_wav_dest)
                 .await
                 .context("Failed to resolve hello.wav path")?;
-            binds.push(format!("{}:/app/hello.wav:ro", hello_wav_abs.display()));
+            let hello_wav_host = self.config.to_host_path(&hello_wav_abs.to_string_lossy());
+            binds.push(format!("{}:/app/hello.wav:ro", hello_wav_host));
         }
 
         debug!("Volume bindings: {:?}", binds);

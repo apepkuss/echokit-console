@@ -10,9 +10,9 @@ pub struct AppConfig {
     pub server_port: u16,
     /// Docker 镜像名称
     pub docker_image: String,
-    /// 配置文件存储目录
+    /// 配置文件存储目录（容器内路径）
     pub config_dir: String,
-    /// 录音存储目录
+    /// 录音存储目录（容器内路径）
     pub record_dir: String,
     /// 默认 hello.wav 路径
     pub hello_wav_path: String,
@@ -22,6 +22,9 @@ pub struct AppConfig {
     pub port_range_end: u16,
     /// 外部访问地址（可选，用于替换 localhost）
     pub external_host: Option<String>,
+    /// 宿主机数据目录（用于 Docker 挂载时的路径映射）
+    /// 当 backend 运行在容器中时，需要将容器内的 /app/data 映射到宿主机的实际路径
+    pub host_data_dir: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -36,6 +39,7 @@ impl Default for AppConfig {
             port_range_start: 8080,
             port_range_end: 8180,
             external_host: None,
+            host_data_dir: None,
         }
     }
 }
@@ -64,7 +68,20 @@ impl AppConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8180),
             external_host: env::var("EXTERNAL_HOST").ok(),
+            host_data_dir: env::var("HOST_DATA_DIR").ok(),
         }
+    }
+
+    /// 将容器内路径转换为宿主机路径（用于 Docker 挂载）
+    /// 如果设置了 HOST_DATA_DIR，则将 /app/data 前缀替换为宿主机路径
+    pub fn to_host_path(&self, container_path: &str) -> String {
+        if let Some(host_data_dir) = &self.host_data_dir {
+            // 将容器内的 /app/data 路径替换为宿主机路径
+            if container_path.starts_with("/app/data") {
+                return container_path.replacen("/app/data", host_data_dir, 1);
+            }
+        }
+        container_path.to_string()
     }
 
     /// 获取容器的 host 地址

@@ -98,16 +98,17 @@ services:
       PROXY_EXTERNAL_PORT: 10086          # Proxy 对外访问端口（与 proxy 的 EXTERNAL_PORT 一致）
       # --- Docker 容器管理配置 ---
       DOCKER_IMAGE: secondstate/echokit:latest-server-vad  # EchoKit Server 镜像
-      CONFIG_DIR: /app/data/configs     # AI 模型配置文件目录
-      RECORD_DIR: /app/data/records     # 录音文件目录
+      CONFIG_DIR: /app/data/configs     # AI 模型配置文件目录（容器内路径）
+      RECORD_DIR: /app/data/records     # 录音文件目录（容器内路径）
       HELLO_WAV_PATH: /app/data/hello.wav  # 欢迎语音频文件
+      HOST_DATA_DIR: ${HOST_DATA_DIR:-./echokit-data}  # 宿主机数据目录（用于 Docker 挂载映射）
       PORT_RANGE_START: 8080            # 容器端口范围起始
       PORT_RANGE_END: 8180              # 容器端口范围结束
       # --- 外部访问配置 ---
       EXTERNAL_HOST: 192.168.0.104      # Backend 对外访问 IP（用于容器 WebSocket URL）
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket
-      - backend_data:/app/data
+      - ${HOST_DATA_DIR:-./echokit-data}:/app/data  # 数据目录（使用 bind mount）
     ports:
       - "3000:3000"
     depends_on:
@@ -137,8 +138,6 @@ volumes:
   redis_data:
     driver: local
   postgres_data:
-    driver: local
-  backend_data:
     driver: local
 
 networks:
