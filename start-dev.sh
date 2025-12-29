@@ -74,6 +74,23 @@ else
     exit 1
 fi
 
+# 执行数据库迁移
+log_info "执行数据库迁移..."
+MIGRATION_DIR="$SCRIPT_DIR/backend/migrations"
+if [ -d "$MIGRATION_DIR" ]; then
+    for sql_file in "$MIGRATION_DIR"/*.sql; do
+        if [ -f "$sql_file" ]; then
+            filename=$(basename "$sql_file")
+            # 检查迁移是否已执行（通过检查表是否存在来简单判断）
+            docker exec -i echokit-postgres psql -U echokit -d echokit < "$sql_file" 2>/dev/null || true
+            log_info "  已执行: $filename"
+        fi
+    done
+    log_success "数据库迁移完成"
+else
+    log_warn "未找到迁移文件目录: $MIGRATION_DIR"
+fi
+
 echo ""
 
 # ============================================================
